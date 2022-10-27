@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
-import android.graphics.Point
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +17,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.example.ocr_test.model.naver.response.NaverResponse
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.googlecode.tesseract.android.TessBaseAPI
 import kotlinx.android.synthetic.main.activity_main.*
 import okhttp3.MultipartBody
@@ -37,12 +39,13 @@ class MainActivity : AppCompatActivity() {
         Manifest.permission.CAMERA,
         Manifest.permission.WRITE_EXTERNAL_STORAGE
     )
-    var currentPhotoPath = ""
 
+    var currentPhotoPath = ""
     var useImage : Bitmap? = null //사용되는 이미지
+
+
     var tess:TessBaseAPI?=null
-    var datapath = ""
-    private val langFileName = "kor.traineddata"
+    val langFileName = "kor.traineddata"
 
     var resutText = ""
 
@@ -69,26 +72,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        datapath = "$filesDir/tesseract/"
-        checkFile(File(datapath+"tessdata/"))
+        var resultIntent = Intent(this,ResultActivity::class.java)
 
+        checkFile(File("$filesDir/tesseract/tessdata/"))
         tess = TessBaseAPI()
         tess!!.init("$filesDir/tesseract/","kor")
 
-        var intent = Intent(this,MainActivity2::class.java)
-
-        val display = windowManager.defaultDisplay
-        val size = Point()
-        display.getSize(size)
-        Log.d(TAG,"x - ${size.x.toString()}")
-        Log.d(TAG,"y - ${size.y.toString()}")
 
         /** 테서렉트 OCR */
         btn_tesseract.setOnClickListener {
             processImage(it)
-
-            intent.putExtra("data",resutText)
-            startActivity(intent)
+            resultIntent.putExtra("data",resutText)
+            startActivity(resultIntent)
         }
         /** 네이버 OCR */
         btn_naver.setOnClickListener {
@@ -108,9 +103,7 @@ class MainActivity : AppCompatActivity() {
                 .addFormDataPart("file",file.name,file.asRequestBody())
                 .build()
 
-            val api = RetrofitClient.getNaverRetrofit()
-
-            api.getNaverMultipart(multipartBody)
+            RetrofitClient.getNaverRetrofit().getNaverMultipart(multipartBody)
                 .enqueue(object : Callback<NaverResponse?> {
                     override fun onResponse(
                         call: Call<NaverResponse?>,
@@ -124,8 +117,8 @@ class MainActivity : AppCompatActivity() {
                                     result += response.body()!!.images[0].fields[i].inferText+"\n"
                                 }
                                 resutText = result
-                                intent.putExtra("data",resutText)
-                                startActivity(intent)
+                                resultIntent.putExtra("data",resutText)
+                                startActivity(resultIntent)
 
                             }else Log.d(TAG,"응답했으나 not Sucess Code - code: ${response.code()}")
                         }else{
@@ -146,14 +139,22 @@ class MainActivity : AppCompatActivity() {
 
 
         }
-        /** 카카오 OCR */
-        btn_kakao.setOnClickListener { 
-            
-        }
         /** 구글 OCR */
         btn_google.setOnClickListener {
-
+            val recognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+            val image = InputImage.fromBitmap(useImage!!,0)
+            val result = recognizer.process(image)
+            .addOnSuccessListener {
+                resutText = it.text
+                resultIntent.putExtra("data",resutText)
+                startActivity(resultIntent)
+            }.addOnFailureListener {
+                it.printStackTrace()
+                Log.d(TAG,"실패 : ${it.message}")
+            }
         }
+        /** 카카오 OCR */
+        btn_kakao.setOnClickListener {}
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -221,7 +222,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun copyFiles() {
         try {
-            val filepath = datapath + "tessdata/" + langFileName
+            val filepath = "$filesDir/tesseract/tessdata/$langFileName"
             val assetManager = assets
             val instream: InputStream = assetManager.open(langFileName)
             val outstream: OutputStream = FileOutputStream(filepath)
@@ -245,7 +246,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (dir.exists()) {
-            val datafilepath = datapath + "tessdata/" + langFileName
+            val datafilepath = "$filesDir/tesseract/tessdata/$langFileName"
             val datafile = File(datafilepath)
             if (!datafile.exists()) {//디렉토리가 있지만 파일이 없으면 파일카피 진행
                 copyFiles()
